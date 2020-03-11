@@ -1274,6 +1274,10 @@ type Scanner interface {
 	// Next must be called before calling Scan, if it is not an error is returned.
 	Scan(...interface{}) error
 
+	// IsNull checks whether the column at the specified index for the current row is null (using Cassandra's
+	// definition of null value).
+	IsNull(columnIndex int) (bool, error)
+
 	// Err returns the if there was one during iteration that resulted in iteration being unable to complete.
 	// Err will also release resources held by the iterator, the Scanner should not used after being called.
 	Err() error
@@ -1311,6 +1315,13 @@ func (is *iterScanner) Next() bool {
 	is.valid = true
 
 	return true
+}
+
+func (is *iterScanner) IsNull(columnIndex int) (bool, error) {
+	if columnIndex < 0 || columnIndex >= len(is.cols) {
+		return false, fmt.Errorf("gocql: invalid column index %d (expected a value >= 0 and < %d", columnIndex, len(is.cols))
+	}
+	return is.cols[columnIndex] == nil, nil
 }
 
 func scanColumn(p []byte, col ColumnInfo, dest []interface{}) (int, error) {
