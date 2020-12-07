@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -354,13 +355,17 @@ func (s *Session) init() error {
 			s.connCfg.ProtoVersion = proto
 		}
 
+		start := time.Now()
 		if err := s.control.connect(hosts); err != nil {
 			return err
 		}
+		log.Printf("ctrl: Connect took %s\n", time.Since(start))
 
 		if !s.cfg.DisableInitialHostLookup {
 			var partitioner string
+			start = time.Now()
 			newHosts, partitioner, err := s.hostSource.GetHosts()
+			log.Printf("ctrl: Get hosts took %s\n", time.Since(start))
 			if err != nil {
 				return err
 			}

@@ -18,6 +18,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"log"
 
 	"github.com/gocql/gocql/internal/lru"
 	"github.com/gocql/gocql/internal/streams"
@@ -135,6 +136,8 @@ func (fn connErrorHandlerFn) HandleError(conn *Conn, err error, closed bool) {
 // depreciated
 var TimeoutLimit int64 = 0
 
+var idGenerator int32 = 0
+
 // Conn is a single connection to a Cassandra node. It can be used to execute
 // queries, but users are usually advised to use a more reliable, higher
 // level API.
@@ -169,6 +172,8 @@ type Conn struct {
 	cancel context.CancelFunc
 
 	timeouts int64
+
+	id int32
 }
 
 // connect establishes a connection to a Cassandra node using session's connection config.
@@ -229,7 +234,18 @@ func (s *Session) dialWithoutObserver(ctx context.Context, host *HostInfo, cfg *
 		hostname = cfg.sniConfig.SNIProxyAddress
 	}
 
+	id := atomic.AddInt32(&idGenerator, 1)
+
+	start := time.Now()
+	startTotal := start
+	_, _ = net.LookupHost(hostname)
+	elapsed := time.Since(start)
+	log.Printf("%04d: DNS took %s", id, elapsed)
+
+	start = time.Now()
 	conn, err := dialer.DialContext(ctx, "tcp", hostname)
+	elapsed = time.Since(start)
+	log.Printf("%04d: Dial took %s", id, elapsed)
 	if err != nil {
 		return nil, err
 	}
@@ -244,10 +260,12 @@ func (s *Session) dialWithoutObserver(ctx context.Context, host *HostInfo, cfg *
 			tlscfg.ServerName = host.HostID()
 		}
 		tconn := tls.Client(conn, tlscfg)
+		start = time.Now()
 		if err := tconn.Handshake(); err != nil {
 			conn.Close()
 			return nil, err
 		}
+		log.Printf("%04d: TLS handshake took %s", id, elapsed)
 		conn = tconn
 	}
 
@@ -271,6 +289,7 @@ func (s *Session) dialWithoutObserver(ctx context.Context, host *HostInfo, cfg *
 		},
 		ctx:    ctx,
 		cancel: cancel,
+		id: id,
 	}
 
 	if err := c.init(ctx); err != nil {
@@ -279,6 +298,7 @@ func (s *Session) dialWithoutObserver(ctx context.Context, host *HostInfo, cfg *
 		return nil, err
 	}
 
+	log.Printf("%04d: Total took %s", id, time.Since(startTotal))
 	return c, nil
 }
 
@@ -409,7 +429,12 @@ func (s *startupCoordinator) write(ctx context.Context, frame frameWriter) (fram
 }
 
 func (s *startupCoordinator) options(ctx context.Context) error {
+	start := time.Now()
 	frame, err := s.write(ctx, &writeOptionsFrame{})
+	elapsed := time.Since(start)
+	log.Printf("%04d: OPTION took %s", s.conn.id, elapsed)
+
+
 	if err != nil {
 		return err
 	}
@@ -442,10 +467,13 @@ func (s *startupCoordinator) startup(ctx context.Context, supported map[string][
 		}
 	}
 
+	start := time.Now()
 	frame, err := s.write(ctx, &writeStartupFrame{opts: m})
 	if err != nil {
 		return err
 	}
+	elapsed := time.Since(start)
+	log.Printf("%04d: STARTUP took %s", s.conn.id, elapsed)
 
 	switch v := frame.(type) {
 	case error:
@@ -471,10 +499,14 @@ func (s *startupCoordinator) authenticateHandshake(ctx context.Context, authFram
 
 	req := &writeAuthResponseFrame{data: resp}
 	for {
+		start := time.Now()
 		frame, err := s.write(ctx, req)
 		if err != nil {
 			return err
 		}
+
+		elapsed := time.Since(start)
+		log.Printf("%04d: AUTH_RESPONSE took %s", s.conn.id, elapsed)
 
 		switch v := frame.(type) {
 		case error:

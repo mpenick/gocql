@@ -5,6 +5,7 @@ import (
 	crand "crypto/rand"
 	"errors"
 	"fmt"
+	"log"
 	"math/rand"
 	"net"
 	"os"
@@ -243,7 +244,10 @@ func (c *controlConn) connect(hosts []*HostInfo) error {
 		return errors.New("control: no endpoints specified")
 	}
 
+	start := time.Now()
 	conn, err := c.shuffleDial(hosts)
+	log.Printf("ctrl: Dial took %s\n", time.Since(start))
+
 	if err != nil {
 		return fmt.Errorf("control: unable to connect to initial hosts: %v", err)
 	}
@@ -267,16 +271,20 @@ type connHost struct {
 }
 
 func (c *controlConn) setupConn(conn *Conn) error {
+	start := time.Now()
 	if err := c.registerEvents(conn); err != nil {
 		conn.Close()
 		return err
 	}
+	log.Printf("ctrl: Register events took %s\n", time.Since(start))
 
 	// TODO(zariel): do we need to fetch host info everytime
 	// the control conn connects? Surely we have it cached?
 	// (rlk) - actually may be needed on the first time for this host since the info may not be filled in yet.
 	// Maybe a test to see if local info filled in?
+	start = time.Now()
 	host, err := conn.localHostInfo(context.TODO())
+	log.Printf("ctrl: Get local info took %s\n", time.Since(start))
 	if err != nil {
 		return err
 	}
